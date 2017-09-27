@@ -15,7 +15,7 @@ Usage:
 
 Options:
   --help                     Show this message.
-  --max-step=<n>             Maximum number of steps to run environment [default: 5e6].
+  --max-steps=<n>             Maximum number of steps to run environment [default: 1e6].
   --run-path=<path>          The sub-directory name for model and summary statistics [default: ppo].
   --load                     Whether to load the model or randomly initialize [default: False].
   --train                    Whether to train model, or only run inference [default: True].
@@ -32,13 +32,14 @@ Options:
   --hidden-units=<n>         Number of units in hidden layer [default: 64].
   --batch-size=<n>           How many experiences per gradient descent update step [default: 64].
   --keep-checkpoints=<n>     How many model checkpoints to keep [default: 5].
+  --worker-id=<n>            Number to add to communication port (5005). Used for asynchronous agent scenarios [default: 0].
 '''
 
 options = docopt(_USAGE)
 print(options)
 
 # General parameters
-max_steps = float(options['--max-step'])
+max_steps = float(options['--max-steps'])
 model_path = './models/{}'.format(str(options['--run-path']))
 summary_path = './summaries/{}'.format(str(options['--run-path']))
 load_model = options['--load']
@@ -47,6 +48,7 @@ summary_freq = int(options['--summary-freq'])
 save_freq = int(options['--save-freq'])
 env_name = options['<env>']
 keep_checkpoints = int(options['--keep-checkpoints'])
+worker_id = int(options['--worker-id'])
 
 # Algorithm-specific parameters for tuning
 gamma = float(options['--gamma'])
@@ -60,7 +62,7 @@ learning_rate = float(options['--learning-rate'])
 hidden_units = int(options['--hidden-units'])
 batch_size = int(options['--batch-size'])
 
-env = UnityEnvironment(file_name=env_name)
+env = UnityEnvironment(file_name=env_name, worker_id=worker_id)
 print(str(env))
 brain_name = env.brain_names[0]
 
@@ -69,10 +71,11 @@ tf.reset_default_graph()
 # Create the Tensorflow model graph
 ppo_model = create_agent_model(env, lr=learning_rate,
                                h_size=hidden_units, epsilon=epsilon,
-                               beta=beta)
+                               beta=beta, max_step=max_steps)
 
 is_continuous = (env.brains[brain_name].action_space_type == "continuous")
 use_observations = (env.brains[brain_name].number_observations > 0)
+use_states = (env.brains[brain_name].state_space_size > 0)
 
 if not os.path.exists(model_path):
     os.makedirs(model_path)
@@ -94,7 +97,7 @@ with tf.Session() as sess:
     steps = sess.run(ppo_model.global_step)
     summary_writer = tf.summary.FileWriter(summary_path)
     info = env.reset(train_mode=train_model)[brain_name]
-    trainer = Trainer(ppo_model, sess, info, is_continuous, use_observations)
+    trainer = Trainer(ppo_model, sess, info, is_continuous, use_observations, use_states)
     while steps <= max_steps or not train_model:
         if env.global_done:
             info = env.reset(train_mode=train_model)[brain_name]
