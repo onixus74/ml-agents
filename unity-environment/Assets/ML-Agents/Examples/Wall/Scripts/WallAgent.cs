@@ -41,18 +41,22 @@ public class WallAgent : Agent
 		float directionX = 0;
 		float directionZ = 0;
 		float directionY = 0;
-		if (movement == 0) { directionX = -1; }
-		if (movement == 1) { directionX = 1; }
-		if (movement == 2) { directionZ = -1; }
+		if (movement == 1) { directionX = -1; }
+		if (movement == 2) { directionX = 1; }
 		if (movement == 3) { directionZ = 1; }
-		if (movement == 4) { directionY = 1; }
+		if (movement == 4) { directionZ = -1; }
+		if (movement == 5) { directionY = 1; }
 
         Vector3 fwd = transform.TransformDirection(Vector3.down);
         if (!Physics.Raycast(transform.position, fwd, 0.55f) && 
-            !Physics.Raycast(transform.position + new Vector3(0.45f, 0f, 0f), fwd, 0.55f) && 
-            !Physics.Raycast(transform.position + new Vector3(-0.45f, 0f, 0f), fwd, 0.55f) && 
-            !Physics.Raycast(transform.position + new Vector3(0.0f, 0f, 0.45f), fwd, 0.55f) && 
-            !Physics.Raycast(transform.position + new Vector3(0.0f, 0f, -0.45f), fwd, 0.55f))
+            !Physics.Raycast(transform.position + new Vector3(0.49f, 0f, 0.49f), fwd, 0.55f) && 
+            !Physics.Raycast(transform.position + new Vector3(-0.49f, 0f, 0.49f), fwd, 0.55f) && 
+            !Physics.Raycast(transform.position + new Vector3(0.49f, 0f, -0.49f), fwd, 0.55f) && 
+            !Physics.Raycast(transform.position + new Vector3(0.49f, 0f, -0.49f), fwd, 0.55f) &&
+		    !Physics.Raycast(transform.position + new Vector3(-0.49f, 0f, 0.0f), fwd, 0.55f) &&
+			!Physics.Raycast(transform.position + new Vector3(0.49f, 0f, 0.49f), fwd, 0.55f) &&
+			!Physics.Raycast(transform.position + new Vector3(0.0f, 0f, -0.49f), fwd, 0.55f) &&
+			!Physics.Raycast(transform.position + new Vector3(0.0f, 0f, 0.49f), fwd, 0.55f))
         { 
             directionY = 0f;
             directionX = directionX / 5f;
