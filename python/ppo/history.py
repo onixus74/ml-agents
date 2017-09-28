@@ -3,6 +3,7 @@ import numpy as np
 history_keys = ['states', 'observations', 'actions', 'rewards', 'action_probs', 'epsilons',
                 'value_estimates', 'advantages', 'discounted_returns']
 
+imitation_keys = ['states', 'observations', 'actions', 'action_probs', 'epsilons']
 
 def discount_rewards(r, gamma=0.99, value_next=0.0):
     """
@@ -53,9 +54,10 @@ def vectorize_history(agent_dict):
     :param agent_dict: Dictionary of agent experience history.
     :return: dictionary of numpy arrays.
     """
+    vectorized = {}
     for key in history_keys:
-        agent_dict[key] = np.array(agent_dict[key])
-    return agent_dict
+        vectorized[key] = np.array(agent_dict[key])
+    return vectorized
 
 
 def empty_all_history(agent_info):
@@ -104,7 +106,19 @@ def shuffle_buffer(global_buffer):
     :return: Randomized buffer
     """
     s = np.arange(global_buffer[history_keys[2]].shape[0])
+    np.random.shuffle(s)
     for key in history_keys:
         if len(global_buffer[key]) > 0:
             global_buffer[key] = global_buffer[key][s]
     return global_buffer
+
+
+def sample_buffer(global_buffer, sample_size):
+    vector = vectorize_history(global_buffer)
+    s = np.arange(vector[history_keys[2]].shape[0])
+    np.random.shuffle(s)
+    sample = empty_local_history({})
+    for key in history_keys:
+        if len(vector[key]) > 0:
+            sample[key] = vector[key][s][0:sample_size]
+    return sample

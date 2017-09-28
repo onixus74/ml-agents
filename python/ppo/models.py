@@ -5,7 +5,7 @@ from tensorflow.python.tools import freeze_graph
 from unityagents import UnityEnvironmentException
 
 
-def create_agent_model(env, lr=1e-4, h_size=128, epsilon=0.2, beta=1e-3, max_step=5e6):
+def create_agent_model(env, lr=1e-4, h_size=128, epsilon=0.2, beta=1e-3, max_step=5e6, mode="ppo"):
     """
     Takes a Unity environment and model-specific hyper-parameters and returns the
     appropriate PPO agent model for the environment.
@@ -20,9 +20,9 @@ def create_agent_model(env, lr=1e-4, h_size=128, epsilon=0.2, beta=1e-3, max_ste
     brain_name = env.brain_names[0]
     brain = env.brains[brain_name]
     if brain.action_space_type == "continuous":
-        return ContinuousControlModel(lr, brain, h_size, epsilon, max_step)
+        return ContinuousControlModel(lr, brain, h_size, epsilon, max_step, mode)
     if brain.action_space_type == "discrete":
-        return DiscreteControlModel(lr, brain, h_size, epsilon, beta, max_step)
+        return DiscreteControlModel(lr, brain, h_size, epsilon, beta, max_step, mode)
 
 
 def save_model(sess, saver, model_path="./", steps=0):
@@ -56,7 +56,7 @@ def export_graph(model_path, env_name="env", target_nodes="action"):
                               restore_op_name="save/restore_all", filename_tensor_name="save/Const:0")
 
 
-class PPOModel(object):
+class NNModel(object):
     def create_visual_encoder(self, o_size_h, o_size_w, bw, h_size, num_streams, activation):
         """
         Builds a set of visual (CNN) encoders.
@@ -120,7 +120,16 @@ class PPOModel(object):
             streams.append(hidden)
         return streams
 
-    def create_ppo_optimizer(self, probs, old_probs, value, entropy, beta, epsilon, lr, max_step):
+    def create_optimizer(self, lr, max_step):
+        self.global_step = tf.Variable(0, trainable=False, name='global_step', dtype=tf.int32)
+        self.learning_rate = tf.train.polynomial_decay(lr, self.global_step,
+                                                       max_step, 1e-10,
+                                                       power=1.0)
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        self.update_batch = optimizer.minimize(self.loss)
+        self.increment_step = tf.assign(self.global_step, self.global_step + 1)
+
+    def create_ppo_loss(self, probs, old_probs, value, entropy, beta, epsilon, lr, max_step):
         """
         Creates training-specific Tensorflow ops for PPO models.
         :param probs: Current policy probabilities
@@ -145,18 +154,16 @@ class PPOModel(object):
 
         self.loss = self.policy_loss + self.value_loss - beta * tf.reduce_mean(entropy)
 
-        self.global_step = tf.Variable(0, trainable=False, name='global_step', dtype=tf.int32)
-        self.learning_rate = tf.train.polynomial_decay(lr, self.global_step,
-                                                       max_step, 1e-10,
-                                                       power=1.0)
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-        self.update_batch = optimizer.minimize(self.loss)
+        self.create_optimizer(lr, max_step)
 
-        self.increment_step = tf.assign(self.global_step, self.global_step + 1)
+    def create_imitation_loss(self, probs, target_probs, lr, max_step):
+        self.policy_loss = tf.reduce_mean(-tf.reduce_sum(target_probs * tf.log(probs + 1e-10), axis=1))
+        self.loss = self.policy_loss
+        self.create_optimizer(lr, max_step)
 
 
-class ContinuousControlModel(PPOModel):
-    def __init__(self, lr, brain, h_size, epsilon, max_step):
+class ContinuousControlModel(NNModel):
+    def __init__(self, lr, brain, h_size, epsilon, max_step, mode):
         """
         Creates Continuous Control Actor-Critic model.
         :param brain: State-space size
@@ -210,11 +217,15 @@ class ContinuousControlModel(PPOModel):
 
         self.old_probs = tf.placeholder(shape=[None, a_size], dtype=tf.float32, name='old_probabilities')
 
-        self.create_ppo_optimizer(self.probs, self.old_probs, self.value, self.entropy, 0.0, epsilon, lr, max_step)
+        if mode == "ppo":
+            self.create_ppo_loss(self.probs, self.old_probs,
+                                      self.value, self.entropy, 0.0, epsilon, lr, max_step)
+        if mode == "imitation":
+            self.create_imitation_loss(self.probs, self.old_probs, lr, max_step)
 
 
-class DiscreteControlModel(PPOModel):
-    def __init__(self, lr, brain, h_size, epsilon, beta, max_step):
+class DiscreteControlModel(NNModel):
+    def __init__(self, lr, brain, h_size, epsilon, beta, max_step, mode):
         """
         Creates Discrete Control Actor-Critic model.
         :param brain: State-space size
@@ -260,5 +271,8 @@ class DiscreteControlModel(PPOModel):
         self.responsible_probs = tf.reduce_sum(self.probs * self.selected_actions, axis=1)
         self.old_responsible_probs = tf.reduce_sum(self.old_probs * self.selected_actions, axis=1)
 
-        self.create_ppo_optimizer(self.responsible_probs, self.old_responsible_probs,
-                                  self.value, self.entropy, beta, epsilon, lr, max_step)
+        if mode == "ppo":
+            self.create_ppo_loss(self.responsible_probs, self.old_responsible_probs,
+                                      self.value, self.entropy, beta, epsilon, lr, max_step)
+        if mode == "imitation":
+            self.create_imitation_loss(self.probs, self.selected_actions, lr, max_step)
